@@ -4,7 +4,7 @@
 ## AnyKernel setup
 # begin properties
 properties() { '
-kernel.string=Flashpoint-Pie
+kernel.string=AOSP_9.0_ext.battery
 do.devicecheck=0
 do.modules=0
 do.cleanup=1
