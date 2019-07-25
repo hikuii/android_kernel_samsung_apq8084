@@ -250,9 +250,7 @@ static void max77804k_check_cvprm(struct max77804k_charger_data *charger, u8 dat
 				MAX77804K_CHG_REG_CHG_CNFG_04, reg_data);
 	}
 }
-#endif
 
-#if defined(WPC_CHECK_CVPRM_FEATURE) || defined(CONFIG_BATTERY_SWELLING)
 static int max77804k_get_charge_votage(struct max77804k_charger_data *charger)
 {
 	u8 reg_data;
@@ -482,7 +480,6 @@ static void max77804k_set_topoff_current(struct max77804k_charger_data *charger,
 		int cur, int timeout)
 {
 	u8 reg_data;
-	union power_supply_propval value;
 
 	if (cur >= 350)
 		reg_data = 0x07;
@@ -508,17 +505,12 @@ static void max77804k_set_topoff_current(struct max77804k_charger_data *charger,
 
 	max77804k_write_reg(charger->max77804k->i2c,
 		MAX77804K_CHG_REG_CHG_CNFG_03, reg_data);
-
-	value.intval = cur;
-	psy_do_property("battery", set,
-		POWER_SUPPLY_PROP_ENERGY_FULL, value);
 }
 
 static void max77804k_set_charge_current(struct max77804k_charger_data *charger,
 		int cur)
 {
 	u8 reg_data = 0;
-	union power_supply_propval value;
 
 	max77804k_read_reg(charger->max77804k->i2c,
 		MAX77804K_CHG_REG_CHG_CNFG_02, &reg_data);
@@ -533,11 +525,6 @@ static void max77804k_set_charge_current(struct max77804k_charger_data *charger,
 		max77804k_write_reg(charger->max77804k->i2c,
 				MAX77804K_CHG_REG_CHG_CNFG_02, reg_data);
 	}
-
-	value.intval = cur;
-	psy_do_property("battery", set,
-			POWER_SUPPLY_PROP_CURRENT_AVG, value);
-
 	pr_debug("%s: reg_data(0x%02x), charge(%d)\n",
 			__func__, reg_data, cur);
 }
@@ -693,8 +680,8 @@ static int max77804k_get_health_state(struct max77804k_charger_data *charger)
 	u8 chg_cnfg_00, chg_cnfg_01 ,chg_cnfg_02, chg_cnfg_04, chg_cnfg_09, chg_cnfg_12;
 
 	/* watchdog kick */
-	max77804k_update_reg(charger->max77804k->i2c,
-		MAX77804K_CHG_REG_CHG_CNFG_06, MAX77804K_WDTCLR, MAX77804K_CHG_WDTCLR_MASK);
+	max77804k_update_reg(charger->max77804k->i2c, MAX77804K_CHG_REG_CHG_CNFG_06,
+		MAX77804K_WDTCLR, MAX77804K_WDTCLR);
 
 	max77804k_read_reg(charger->max77804k->i2c,
 		MAX77804K_CHG_REG_CHG_DTLS_01, &reg_data);
@@ -868,9 +855,10 @@ static int sec_chg_get_property(struct power_supply *psy,
 		val->intval = max77804k_get_charge_votage(charger);
 		break;
 #endif
-#if defined(WPC_CHECK_CVPRM_FEATURE) || defined(CONFIG_BATTERY_SWELLING)
+#if defined(CONFIG_BATTERY_SWELLING)
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
-		val->intval = max77804k_get_charge_votage(charger);
+		max77804k_read_reg(charger->max77804k->i2c,MAX77804K_CHG_REG_CHG_CNFG_04, &reg_data);
+		val->intval = reg_data;
 		pr_debug("%s: Float voltage : 0x%x\n", __func__, val->intval);
 		break;
 #endif
@@ -1034,6 +1022,9 @@ static int sec_chg_set_property(struct power_supply *psy,
 		max77804k_set_input_current(charger,
 				val->intval);
 		break;
+	case POWER_SUPPLY_PROP_ENERGY_FULL:
+		max77804k_set_topoff_current(charger, val->intval, (70 * 60));
+		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 		charger->siop_level = val->intval;
 		if (charger->is_charging) {
@@ -1157,15 +1148,7 @@ set_current:
 				MAX77804K_CHG_REG_CHG_CNFG_04, &reg_data);
 		pr_debug("%s: Float voltage set to : 0x%x\n", __func__, reg_data);
 		break;
-	case  POWER_SUPPLY_PROP_CHARGING_ENABLED:
-		pr_info("%s: charger enable(%d)\n", __func__, val->intval);
-		max77804k_set_charger_state(charger, val->intval);
-		charger->is_charging = val->intval;
-		break;
 #endif
-	case POWER_SUPPLY_PROP_ENERGY_FULL:
-		max77804k_set_topoff_current(charger, val->intval, (70 * 60));
-		break;
 	default:
 		return -EINVAL;
 	}
@@ -1990,9 +1973,9 @@ static int max77804k_charger_probe(struct platform_device *pdev)
 		pr_err("%s: fail to request bypass IRQ: %d: %d\n",
 				__func__, charger->irq_bypass, ret);
 	/* watchdog kick */
-	max77804k_update_reg(charger->max77804k->i2c,
-		MAX77804K_CHG_REG_CHG_CNFG_06, MAX77804K_WDTCLR, MAX77804K_CHG_WDTCLR_MASK);
-
+	max77804k_update_reg(charger->max77804k->i2c, MAX77804K_CHG_REG_CHG_CNFG_06,
+		MAX77804K_WDTCLR, MAX77804K_WDTCLR);
+		
 	return 0;
 err_wc_irq:
 	free_irq(charger->pdata->chg_irq, NULL);
