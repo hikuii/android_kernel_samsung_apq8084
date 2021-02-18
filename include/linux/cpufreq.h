@@ -461,6 +461,18 @@ extern struct cpufreq_governor cpufreq_gov_conservative;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE)
 extern struct cpufreq_governor cpufreq_gov_interactive;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_interactive)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_NIGHTMARE)
+extern struct cpufreq_governor cpufreq_gov_nightmare;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_nightmare)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ZZMOOVE)
+extern struct cpufreq_governor cpufreq_gov_zzmoove;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_zzmoove)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTELLIACTIVE)
+extern struct cpufreq_governor cpufreq_gov_intelliactive;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_intelliactive)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_BLU_ACTIVE)
+extern struct cpufreq_governor cpufreq_gov_blu_active;
+#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_blu_active)
 #endif
 
 /*********************************************************************
@@ -519,6 +531,8 @@ static inline int cpufreq_generic_exit(struct cpufreq_policy *policy)
 
 void acct_update_power(struct task_struct *p, cputime_t cputime);
 void cpufreq_task_stats_init(struct task_struct *p);
+void cpufreq_task_stats_alloc(struct task_struct *p);
+void cpufreq_task_stats_free(struct task_struct *p);
 void cpufreq_task_stats_exit(struct task_struct *p);
 void cpufreq_task_stats_remove_uids(uid_t uid_start, uid_t uid_end);
 int  proc_time_in_state_show(struct seq_file *m, struct pid_namespace *ns,

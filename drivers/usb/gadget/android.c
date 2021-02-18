@@ -76,6 +76,9 @@
 #include "f_midi.c"
 #endif
 #include "f_accessory.c"
+#include "f_hid.h"
+#include "f_hid_android_keyboard.c"
+#include "f_hid_android_mouse.c"
 #include "f_rndis.c"
 #include "rndis.c"
 #include "f_qc_ecm.c"
@@ -2380,8 +2383,6 @@ static int mass_storage_function_init(struct android_usb_function *f,
 	struct mass_storage_function_config *config;
 	struct fsg_common *common;
 	int err;
-	int i;
-	const char *name[2];
 
 	config = kzalloc(sizeof(struct mass_storage_function_config),
 							GFP_KERNEL);
@@ -2390,13 +2391,23 @@ static int mass_storage_function_init(struct android_usb_function *f,
 		return -ENOMEM;
 	}
 
-	config->fsg.nluns = 1;
-	name[0] = "lun";
+	config->fsg.nluns = 3;
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-	config->fsg.luns[0].cdrom = 1;
+	// lun0: Removable disk (like an USB thumbdrive)
+	config->fsg.luns[0].cdrom = 0;
 	config->fsg.luns[0].ro = 0;
-	config->fsg.luns[0].removable = 1;
+ 	config->fsg.luns[0].removable = 1;
+ 
+	// lun1: CD-rom drive
+	config->fsg.luns[1].cdrom = 1;
+	config->fsg.luns[1].ro = 1;
+	config->fsg.luns[1].removable = 0;
+
+	// lun2: Non-removable disk (like a HDD)
+	config->fsg.luns[2].cdrom = 0;
+	config->fsg.luns[2].ro = 0;
+	config->fsg.luns[2].removable = 0;
 #else
 	config->fsg.luns[0].removable = 1;
 #endif
@@ -2407,21 +2418,39 @@ static int mass_storage_function_init(struct android_usb_function *f,
 		return PTR_ERR(common);
 	}
 
-	for (i = 0; i < config->fsg.nluns; i++) {
-		err = sysfs_create_link(&f->dev->kobj,
-					&common->luns[i].dev.kobj,
-					name[i]);
-		if (err)
-			goto error;
-	}
+	err = sysfs_create_link(&f->dev->kobj,
+				&common->luns[0].dev.kobj,
+				"lun");
+	if (err)
+		goto error;
+
+	err = sysfs_create_link(&f->dev->kobj,
+				&common->luns[0].dev.kobj,
+				"lun0");
+	if (err)
+		goto error;
+
+	err = sysfs_create_link(&f->dev->kobj,
+				&common->luns[1].dev.kobj,
+				"lun1");
+	if (err)
+		goto error;
+
+	err = sysfs_create_link(&f->dev->kobj,
+				&common->luns[2].dev.kobj,
+				"lun2");
+	if (err)
+		goto error;
 
 	config->common = common;
 	f->config = config;
 	return 0;
 error:
-	for (; i > 0; i--)
-		sysfs_remove_link(&f->dev->kobj, name[i-1]);
-
+	sysfs_remove_link(&f->dev->kobj, "lun");
+	sysfs_remove_link(&f->dev->kobj, "lun0");
+	sysfs_remove_link(&f->dev->kobj, "lun1");
+	sysfs_remove_link(&f->dev->kobj, "lun2");
+	
 	fsg_common_release(&common->ref);
 	kfree(config);
 	return err;
@@ -2788,6 +2817,7 @@ static struct android_usb_function audio_source_function = {
 	.unbind_config	= audio_source_function_unbind_config,
 	.attributes	= audio_source_function_attributes,
 };
+
 #endif
 
 static int android_uasp_connect_cb(bool connect)
@@ -2836,6 +2866,41 @@ static struct android_usb_function uasp_function = {
 	.bind_config	= uasp_function_bind_config,
 };
 
+static int hid_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
+{
+	return ghid_setup(cdev->gadget, 2);
+}
+
+static void hid_function_cleanup(struct android_usb_function *f)
+{
+	ghid_cleanup();
+}
+
+static int hid_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
+{
+	int ret;
+	printk(KERN_INFO "hid keyboard\n");
+	ret = hidg_bind_config(c, &ghid_device_android_keyboard, 0);
+	if (ret) {
+		pr_info("%s: hid_function_bind_config keyboard failed: %d\n", __func__, ret);
+		return ret;
+	}
+	printk(KERN_INFO "hid mouse\n");
+	ret = hidg_bind_config(c, &ghid_device_android_mouse, 1);
+	if (ret) {
+		pr_info("%s: hid_function_bind_config mouse failed: %d\n", __func__, ret);
+		return ret;
+	}
+	return 0;
+}
+
+static struct android_usb_function hid_function = {
+	.name		= "hid",
+	.init		= hid_function_init,
+	.cleanup	= hid_function_cleanup,
+	.bind_config	= hid_function_bind_config,
+};
+
 static struct android_usb_function *supported_functions[] = {
 	&ffs_function,
 	&mbim_function,
@@ -2868,6 +2933,7 @@ static struct android_usb_function *supported_functions[] = {
 	&ncm_function,
 	&mass_storage_function,
 	&accessory_function,
+	&hid_function,
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_SIDESYNC
 	&conn_gadget_function,
 #endif
@@ -3139,6 +3205,12 @@ functions_show(struct device *pdev, struct device_attribute *attr, char *buf)
 	return buff - buf;
 }
 
+static struct hid_usb_data hid_usb = {
+	.hid_enabled = 0,
+};
+
+module_param_named(usb_keyboard, hid_usb.hid_enabled, uint, 0664);
+
 static ssize_t
 functions_store(struct device *pdev, struct device_attribute *attr,
 			       const char *buff, size_t size)
@@ -3154,6 +3226,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	int err;
 	int is_ffs;
 	int ffs_enabled = 0;
+	int hid_usb_enabled = 0;
 
 	mutex_lock(&dev->mutex);
 
@@ -3223,8 +3296,18 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 			if (err)
 				pr_err("android_usb: Cannot enable '%s' (%d)",
 							name, err);
+			if (!strcmp(name, "hid")) {
+					if (hid_usb.hid_enabled == 1)
+						hid_usb_enabled = 1;
+					else
+						hid_usb_enabled = 0;
+				}
 		}
 	}
+
+	/* HID driver always enabled, it's the whole point of this kernel patch */
+	if (hid_usb_enabled)
+		android_enable_function(dev, conf, "hid");
 
 	/* Free uneeded configurations if exists */
 	while (curr_conf->next != &dev->configs) {
